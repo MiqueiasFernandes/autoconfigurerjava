@@ -5,6 +5,7 @@
  */
 package autoconfigurerjava;
 
+import autoconfigurerjava.chain.AbstractSOHandler;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
@@ -44,44 +45,62 @@ public class Autoconfigurerjava {
      */
     public static void main(String[] args) {
 
-        print("configurando variavel de ambiente R_HOME", false);
-        if (!tentaRenv(OSValidator.getOSType())) {
-            print("não foi possivel configurar variavel de ambiente R_HOME", true);
-            System.exit(-1);
-        }else
-            print("variavel R_HOME configurado.", false);
+        AbstractSOHandler sOHandler = new AbstractSOHandler() {
+            @Override
+            public boolean accept(OSType os) {
+                return OSType.WINDOWS == os;
+            }
 
-        print("instalando pacote rJava", false);
-        if (!tentaRJava(OSValidator.getOSType())) {
-            print("não foi possivel instalar o pacote rJava", true);
-            System.exit(-2);
-        }
+            @Override
+            public boolean handle(OSType os) {
+                confRHOME(os);
+                confRJava(os);
+                try {
+                    print("copiando arquivos JRI", false);
+                    String rbim = getEnv(envR_HOME) + File.separator + "bin";
+                    String jri = getEnv(envR_HOME) + File.separator
+                            + "library" + File.separator
+                            + "rJava" + File.separator + "jri";
 
-        if (OSValidator.isWindows()) {
-            try {
-                print("copiando arquivos JRI", false);
-                String rbim = getEnv(envR_HOME) + File.separator + "bin";
-                String jri = getEnv(envR_HOME) + File.separator
-                        + "library" + File.separator
-                        + "rJava" + File.separator + "jri";
+                    if (copyJRIs(jri, "", rbim)) {
 
-                if (copyJRIs(jri, "", rbim)) {
+                        File folder = new File(jri);
+                        File[] listOfFiles = folder.listFiles();
 
-                    File folder = new File(jri);
-                    File[] listOfFiles = folder.listFiles();
-
-                    for (File listOfFile : listOfFiles) {
-                        if (listOfFile.isDirectory()) {
-                            copyJRIs(listOfFile.getAbsolutePath(), listOfFile.getName(), rbim);
+                        for (File listOfFile : listOfFiles) {
+                            if (listOfFile.isDirectory()) {
+                                copyJRIs(listOfFile.getAbsolutePath(), listOfFile.getName(), rbim);
+                            }
                         }
                     }
+                } catch (Exception ex) {
+                    print("houve um erro enquanto copiava os arquivos JRI. detalhes: " + ex, true);
+                    System.exit(-3);
                 }
-            } catch (Exception ex) {
-                print("houve um erro enquanto copiava os arquivos JRI. detalhes: " + ex, true);
-                System.exit(-3);
+                print("arquivos JRI copiados", false);
+
+                return true;
             }
-            print("arquivos JRI copiados", false);
+        };
+        sOHandler.setNext(new AbstractSOHandler() {
+            @Override
+            public boolean accept(OSType os) {
+                return os == OSType.LINUX;
+            }
+
+            @Override
+            public boolean handle(OSType os) {
+                confRHOME(os);
+                confRJava(os);
+                return true;
+            }
+        });
+
+        if (!sOHandler.handler(OSValidator.getOSType())) {
+            print("error: operative system not suported, execute como administrador or general failure.", true);
+            System.exit(-4);
         }
+
         print("testando JRI", false);
         try {
             rconnector.RFacade fachada = rconnector.RFacade.getInstance(ConnectionType.LOCAL);
@@ -91,7 +110,26 @@ public class Autoconfigurerjava {
         } catch (RException ex) {
             print("houve um erro enquanto testava rJava. detalhes: \n" + ex, true);
         }
+
         System.exit(0);
+    }
+
+    private static void confRHOME(OSType os) {
+        print("configurando variavel de ambiente R_HOME", false);
+        if (!tentaRenv(OSValidator.getOSType())) {
+            print("não foi possivel configurar variavel de ambiente R_HOME", true);
+            System.exit(-1);
+        } else {
+            print("variavel R_HOME configurado.", false);
+        }
+    }
+
+    private static void confRJava(OSType os) {
+        print("instalando pacote rJava", false);
+        if (!tentaRJava(OSValidator.getOSType())) {
+            print("não foi possivel instalar o pacote rJava", true);
+            System.exit(-2);
+        }
     }
 
     private static boolean copyJRIs(String path, String pathfrom, String pathto) {
@@ -104,10 +142,10 @@ public class Autoconfigurerjava {
                 try {
                     Files.copy(
                             listOfFile.toPath(),
-                            (f = new File(pathto 
-                                    + File.separator 
-                                    + pathfrom  
-                                    + File.separator 
+                            (f = new File(pathto
+                                    + File.separator
+                                    + pathfrom
+                                    + File.separator
                                     + jriDLLname)).toPath(),
                             java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 } catch (IOException ex) {
@@ -118,10 +156,9 @@ public class Autoconfigurerjava {
                 }
             }
         }
-        
+
         return true;
-        
-        
+
     }
 
     private static void print(String text, boolean modoErr) {
@@ -219,7 +256,7 @@ public class Autoconfigurerjava {
 
             exec.waitFor();
 
-           // print("Verificando saida do script em " + f.getParent() + File.separator + f.getName() + extRout, false);
+            // print("Verificando saida do script em " + f.getParent() + File.separator + f.getName() + extRout, false);
             Scanner sc = new Scanner(new FileReader(f.getParent() + File.separator + f.getName() + extRout));
 
             String saida = "";
